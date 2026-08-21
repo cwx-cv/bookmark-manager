@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>书签管理器</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>🔖 书签管理器</h1>
+    <p id="summary">正在读取书签...</p>
+  </header>
+
+  <section class="form-box">
+    <h2 id="form-title">添加书签</h2>
+    <input id="new-title" type="text" placeholder="标题（可留空，默认使用域名）">
+    <input id="new-url" type="text" placeholder="网址，例如 https://example.com">
+    <div class="row">
+      <select id="folder-select" title="保存到文件夹"></select>
+      <button id="add-btn" type="button">添加</button>
+      <button id="cancel-btn" type="button" class="secondary" hidden>取消</button>
+    </div>
+    <p id="form-message" class="message" hidden></p>
+  </section>
+
+  <section class="folder-box">
+    <h2>文件夹管理</h2>
+    <select id="manage-folder-select" title="选择文件夹"></select>
+    <div class="row">
+      <input id="folder-name-input" type="text" placeholder="文件夹名称">
+      <button id="create-folder-btn" type="button">新建子文件夹</button>
+    </div>
+    <div class="row">
+      <button id="rename-folder-btn" type="button" class="secondary">重命名选中文件夹</button>
+    </div>
+    <p id="folder-message" class="message" hidden></p>
+  </section>
+
+  <section class="actions-box">
+    <h2>导入 / 导出</h2>
+    <div class="actions-row">
+      <button id="export-btn" type="button" class="secondary">导出 JSON</button>
+      <button id="import-btn" type="button" class="secondary">导入 JSON</button>
+      <button id="import-html-btn" type="button" class="secondary">导入 HTML</button>
+    </div>
+    <input id="import-file" type="file" accept="application/json,.json" hidden>
+    <input id="import-html-file" type="file" accept=".html,.htm,text/html" hidden>
+    <p id="action-message" class="message" hidden></p>
+  </section>
+
+  <section class="list-box">
+    <div class="list-header">
+      <h2>已收藏网址</h2>
+      <input id="search-input" type="search" placeholder="搜索标题或网址">
+    </div>
+    <ul id="bookmark-list"></ul>
+    <p id="empty" hidden>暂无书签</p>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>
