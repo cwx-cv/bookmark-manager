@@ -27,6 +27,7 @@ const actionMessage = document.getElementById('action-message');
 let allBookmarks = [];
 let folders = [];
 let editingId = null;
+let reloadTimer = null;
 
 function flattenTree(nodes, parentTitle) {
   let result = [];
@@ -95,7 +96,7 @@ function populateFolderSelect(selectEl, preferredId, keepSelection) {
 }
 
 function renderFolders() {
-  populateFolderSelect(folderSelect, '1', false);
+  populateFolderSelect(folderSelect, '1', true);
   populateFolderSelect(manageFolderSelect, '1', true);
 }
 
@@ -212,7 +213,20 @@ function normalizeUrl(rawValue) {
   }
 }
 
+function buildDuplicateSet() {
+  const seen = new Set();
+  allBookmarks.forEach(function (bookmark) {
+    seen.add(bookmark.parentId + '|' + bookmark.url);
+  });
+  return seen;
+}
+
 async function loadData() {
+  if (reloadTimer) {
+    clearTimeout(reloadTimer);
+    reloadTimer = null;
+  }
+
   summaryEl.textContent = '正在读取书签...';
   try {
     const tree = await chrome.bookmarks.getTree();
@@ -225,6 +239,7 @@ async function loadData() {
     summaryEl.textContent = '读取书签失败：' + message;
     allBookmarks = [];
     folders = [];
+    renderFolders();
     renderBookmarks();
   }
 }
@@ -250,6 +265,7 @@ function resetForm() {
   newTitleInput.value = '';
   newUrlInput.value = '';
   renderFolders();
+  populateFolderSelect(folderSelect, '1', false);
   addButton.textContent = '添加';
   cancelButton.hidden = true;
   formMessage.hidden = true;
@@ -285,6 +301,15 @@ async function submitForm() {
       const message = error && error.message ? error.message : '未知错误';
       showFormMessage('修改失败：' + message, true);
     }
+    return;
+  }
+
+  const alreadyExists = allBookmarks.some(function (bookmark) {
+    return bookmark.parentId === parentId && bookmark.url === normalized.url;
+  });
+
+  if (alreadyExists) {
+    showFormMessage('该文件夹中已存在相同网址', true);
     return;
   }
 
@@ -423,7 +448,9 @@ async function importBookmarks() {
     }
 
     const parentId = folderSelect.value || '1';
+    const seenUrls = buildDuplicateSet();
     let added = 0;
+    let skipped = 0;
     let failed = 0;
 
     for (const item of items) {
@@ -434,6 +461,13 @@ async function importBookmarks() {
         continue;
       }
 
+      const key = parentId + '|' + normalized.url;
+      if (seenUrls.has(key)) {
+        skipped += 1;
+        continue;
+      }
+      seenUrls.add(key);
+
       const title = item.title || item.name || normalized.hostname;
       try {
         await chrome.bookmarks.create({ parentId: parentId, title: title, url: normalized.url });
@@ -443,7 +477,7 @@ async function importBookmarks() {
       }
     }
 
-    showActionMessage('导入完成：成功 ' + added + ' 个，失败 ' + failed + ' 个', failed > 0);
+    showActionMessage('导入完成：成功 ' + added + ' 个，跳过 ' + skipped + ' 个，失败 ' + failed + ' 个', failed > 0);
     importFile.value = '';
     await loadData();
   } catch (error) {
@@ -462,7 +496,7 @@ function directChildByTag(parent, tagName) {
   return null;
 }
 
-async function importHtmlLevel(dl, parentId, stats) {
+async function importHtmlLevel(dl, parentId, stats, seenUrls) {
   const children = dl.children;
   for (let i = 0; i < children.length; i += 1) {
     const dt = children[i];
@@ -479,7 +513,7 @@ async function importHtmlLevel(dl, parentId, stats) {
       try {
         const folderNode = await chrome.bookmarks.create({ parentId: parentId, title: folderTitle });
         if (childDl) {
-          await importHtmlLevel(childDl, folderNode.id, stats);
+          await importHtmlLevel(childDl, folderNode.id, stats, seenUrls);
         }
       } catch (error) {
         stats.failed += 1;
@@ -492,6 +526,13 @@ async function importHtmlLevel(dl, parentId, stats) {
         stats.failed += 1;
         continue;
       }
+
+      const key = parentId + '|' + normalized.url;
+      if (seenUrls.has(key)) {
+        stats.skipped += 1;
+        continue;
+      }
+      seenUrls.add(key);
 
       try {
         await chrome.bookmarks.create({ parentId: parentId, title: title || normalized.hostname, url: normalized.url });
@@ -520,16 +561,25 @@ async function importHtmlBookmarks() {
     }
 
     const parentId = folderSelect.value || '1';
-    const stats = { added: 0, failed: 0 };
-    await importHtmlLevel(rootDl, parentId, stats);
+    const stats = { added: 0, skipped: 0, failed: 0 };
+    await importHtmlLevel(rootDl, parentId, stats, buildDuplicateSet());
 
-    showActionMessage('导入完成：成功 ' + stats.added + ' 个书签，失败 ' + stats.failed + ' 个', stats.failed > 0);
+    showActionMessage('导入完成：成功 ' + stats.added + ' 个书签，跳过 ' + stats.skipped + ' 个，失败 ' + stats.failed + ' 个', stats.failed > 0);
     importHtmlFile.value = '';
     await loadData();
   } catch (error) {
     showActionMessage('导入失败：请选择有效的 HTML 书签文件', true);
     importHtmlFile.value = '';
   }
+}
+
+function scheduleDataRefresh() {
+  if (reloadTimer) {
+    clearTimeout(reloadTimer);
+  }
+  reloadTimer = setTimeout(function () {
+    loadData();
+  }, 150);
 }
 
 searchInput.addEventListener('input', renderBookmarks);
@@ -558,5 +608,10 @@ importHtmlButton.addEventListener('click', function () {
   importHtmlFile.click();
 });
 importHtmlFile.addEventListener('change', importHtmlBookmarks);
+
+chrome.bookmarks.onCreated.addListener(scheduleDataRefresh);
+chrome.bookmarks.onRemoved.addListener(scheduleDataRefresh);
+chrome.bookmarks.onChanged.addListener(scheduleDataRefresh);
+chrome.bookmarks.onMoved.addListener(scheduleDataRefresh);
 
 document.addEventListener('DOMContentLoaded', loadData);
